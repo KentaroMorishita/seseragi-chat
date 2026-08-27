@@ -104,6 +104,9 @@ let buttonStyle = html.style {
 fn impossibleString _failure: Never -> String =
   "unreachable"
 
+fn errorText error: websocket.WebSocketError -> String =
+  websocket.errorMessage error
+
 fn ignoreString _error: String -> Task<Unit> =
   effects.succeed ()
 
@@ -212,7 +215,7 @@ fn receive
   do {
     websocket.messages connection
       |> streams.filterMap textEvent
-      |> streams.mapError (\error: websocket.WebSocketError -> websocket.errorMessage error)
+      |> streams.mapError errorText
       |> streams.runForEach (appendMessageWithError state)
       |> effects.recover ignoreString
 
@@ -223,7 +226,7 @@ fn receive
 fn connectionFailed
   state: MutableSignal<Model>
   -> connectionState: Ref<ConnectionState>
-  -> _error: websocket.WebSocketError
+  -> _error: String
   -> Task<Unit> =
   do {
     refs.set Disconnected connectionState
@@ -294,9 +297,13 @@ fails String =
           protocols: ["seseragi.chat.v1"],
           receiveBuffer: capacity,
         }
+          |> effects.mapError errorText
         refs.set (Connected connection) connectionState
+          |> effects.mapError impossibleString
         markConnected state
+          |> effects.mapError impossibleString
         receive state connectionState connection
+          |> effects.mapError impossibleString
       }
         |> effects.recover (connectionFailed state connectionState)
     )
