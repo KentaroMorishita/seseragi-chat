@@ -377,7 +377,7 @@ fails String =
       |> effects.mapError (\error: streams.BufferCapacityError -> show error)
 
     connection <- websocket.connect {
-      url: "ws://127.0.0.1:41290/chat",
+      url: "wss://seseragi-chat.vercel.app/chat",
       protocols: ["seseragi.chat.v1"],
       receiveBuffer: capacity,
     }
