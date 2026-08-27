@@ -2,9 +2,11 @@ import * as arrays from "std/array"
 import * as dom from "std/web/dom"
 import * as effects from "std/effect"
 import * as html from "std/web/html"
+import * as refs from "std/ref"
 import * as signals from "std/signal"
 import * as streams from "std/stream"
 import * as websocket from "std/websocket"
+import { Ref } from "std/ref"
 import { MutableSignal } from "std/signal"
 
 struct Model {
@@ -19,11 +21,16 @@ type Action =
   | DraftChanged String
   | Submitted
 
+type ConnectionState =
+  | Connecting
+  | Connected websocket.WebSocketConnection
+  | Disconnected
+
 let initial = Model {
   name: "Guest",
   draft: "",
   messages: [],
-  status: "Connected",
+  status: "Connecting…",
 }
 
 let pageStyle = html.style {
@@ -175,9 +182,19 @@ fn appendMessageWithError
 fn clearDraft state: MutableSignal<Model> -> Task<Unit> =
   signals.update (\model: Model -> Model { ...model, draft: "" }) state
 
+fn markConnected state: MutableSignal<Model> -> Task<Unit> =
+  signals.update
+    (\model: Model -> Model { ...model, status: "Connected" })
+    state
+
 fn markDisconnected state: MutableSignal<Model> -> Task<Unit> =
   signals.update
     (\model: Model -> Model { ...model, status: "Disconnected" })
+    state
+
+fn markUnavailable state: MutableSignal<Model> -> Task<Unit> =
+  signals.update
+    (\model: Model -> Model { ...model, status: "Server unavailable" })
     state
 
 fn textEvent event: websocket.WebSocketEvent -> Maybe<String> =
@@ -189,6 +206,7 @@ fn textEvent event: websocket.WebSocketEvent -> Maybe<String> =
 
 fn receive
   state: MutableSignal<Model>
+  -> connectionState: Ref<ConnectionState>
   -> connection: websocket.WebSocketConnection
   -> Task<Unit> =
   do {
@@ -198,7 +216,18 @@ fn receive
       |> streams.runForEach (appendMessageWithError state)
       |> effects.recover ignoreString
 
+    refs.set Disconnected connectionState
     markDisconnected state
+  }
+
+fn connectionFailed
+  state: MutableSignal<Model>
+  -> connectionState: Ref<ConnectionState>
+  -> _error: websocket.WebSocketError
+  -> Task<Unit> =
+  do {
+    refs.set Disconnected connectionState
+    markUnavailable state
   }
 
 fn sendFailed
@@ -211,7 +240,7 @@ fn sendFailed
 
 fn handle
   state: MutableSignal<Model>
-  -> connection: websocket.WebSocketConnection
+  -> connectionState: Ref<ConnectionState>
   -> action: Action
   -> Task<Unit> =
   match action {
@@ -227,34 +256,50 @@ fn handle
         effects.succeed ()
       else
         do {
-          websocket.sendText `${current.name}: ${current.draft}` connection
-            |> effects.recover (sendFailed state)
-          clearDraft state
+          connection <- refs.get connectionState
+          match connection {
+            Connecting ->
+              effects.succeed ()
+
+            Disconnected ->
+              markUnavailable state
+
+            Connected socket -> do {
+              websocket.sendText `${current.name}: ${current.draft}` socket
+                |> effects.recover (sendFailed state)
+              clearDraft state
+            }
+          }
         }
     }
   }
-
-fn errorText error: websocket.WebSocketError -> String =
-  websocket.errorMessage error
 
 pub effect fn main -> Unit
 with dom: dom.Dom, webSocketClient: websocket.WebSocketClient
 fails String =
   do {
+    state <- signals.make initial
+      |> effects.mapError impossibleString
+    connectionState <- refs.make Connecting
+      |> effects.mapError impossibleString
+
     capacity <- streams.bufferCapacity 32
       |> effects.fromEither
       |> effects.mapError (\error: streams.BufferCapacityError -> show error)
 
-    connection <- websocket.connect {
-      url: "ws://127.0.0.1:41290/chat",
-      protocols: ["seseragi.chat.v1"],
-      receiveBuffer: capacity,
-    }
-      |> effects.mapError errorText
-
-    state <- signals.make initial
-      |> effects.mapError impossibleString
-    _receiver <- effects.fork (receive state connection)
+    _connector <- effects.fork (
+      do {
+        connection <- websocket.connect {
+          url: "ws://127.0.0.1:41290/chat",
+          protocols: ["seseragi.chat.v1"],
+          receiveBuffer: capacity,
+        }
+        refs.set (Connected connection) connectionState
+        markConnected state
+        receive state connectionState connection
+      }
+        |> effects.recover (connectionFailed state connectionState)
+    )
       |> effects.mapError impossibleString
 
     let content = signals.map view state
@@ -263,6 +308,6 @@ fails String =
     target <- dom.query "#app"
       |> effects.mapError (\error: dom.DomError -> show error)
 
-    dom.run options target (handle state connection) content
+    dom.run options target (handle state connectionState) content
       |> effects.mapError (\error: dom.DomRuntimeError<Never> -> show error)
   }
