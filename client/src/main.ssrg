@@ -144,7 +144,7 @@ let composerStyle = html.style {
   borderTop: "1px solid #e5e7eb",
   display: "flex",
   gap: "10px",
-  padding: "12px 14px 14px"
+  padding: "12px 14px calc(20px + env(safe-area-inset-bottom))"
 }
 
 let fieldStyle = html.style {
