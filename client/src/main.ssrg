@@ -94,6 +94,16 @@ let buttonStyle = html.style {
   width: "100%"
 }
 
+fn webSocketFromNever value: Never -> websocket.WebSocketError =
+  match value {}
+
+fn stringFromNever value: Never -> String =
+  match value {}
+
+fn webSocketUnit -> Effect<{}, websocket.WebSocketError, Unit> =
+  let result: Either<websocket.WebSocketError, Unit> = Right ()
+  effects.fromEither result
+
 fn nameAction event: html.InputEvent -> Action =
   NameChanged event.value
 
@@ -169,9 +179,9 @@ fn receiveEvent
   -> event: websocket.WebSocketEvent
   -> Effect<{}, websocket.WebSocketError, Unit> =
   websocket.foldEvent
-    (appendMessage state)
-    (\_ -> effects.succeed ())
-    (\_ -> markDisconnected state)
+    (\text -> appendMessage state text |> effects.mapError webSocketFromNever)
+    (\_ -> webSocketUnit ())
+    (\_ -> markDisconnected state |> effects.mapError webSocketFromNever)
     event
 
 fn receive
@@ -236,7 +246,9 @@ fails String =
       |> effects.mapError errorText
 
     state <- signals.make initial
-    _receiver <- effects.fork $ receive state connection
+      |> effects.mapError stringFromNever
+    _receiver <- effects.fork (receive state connection)
+      |> effects.mapError stringFromNever
 
     target <- dom.query "#app"
       |> effects.mapError (\error: dom.DomError -> show error)
