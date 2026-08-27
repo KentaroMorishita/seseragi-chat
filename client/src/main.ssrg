@@ -277,6 +277,32 @@ fn handle
     }
   }
 
+effect fn connectAndReceive
+  state: MutableSignal<Model>
+  -> connectionState: Ref<ConnectionState>
+  -> Unit
+with webSocketClient: websocket.WebSocketClient
+fails String =
+  do {
+    capacity <- streams.bufferCapacity 32
+      |> effects.fromEither
+      |> effects.mapError (\error: streams.BufferCapacityError -> show error)
+
+    connection <- websocket.connect {
+      url: "ws://127.0.0.1:41290/chat",
+      protocols: ["seseragi.chat.v1"],
+      receiveBuffer: capacity,
+    }
+      |> effects.mapError errorText
+
+    refs.set (Connected connection) connectionState
+      |> effects.mapError impossibleString
+    markConnected state
+      |> effects.mapError impossibleString
+    receive state connectionState connection
+      |> effects.mapError impossibleString
+  }
+
 pub effect fn main -> Unit
 with dom: dom.Dom, webSocketClient: websocket.WebSocketClient
 fails String =
@@ -286,25 +312,10 @@ fails String =
     connectionState <- refs.make Connecting
       |> effects.mapError impossibleString
 
-    capacity <- streams.bufferCapacity 32
-      |> effects.fromEither
-      |> effects.mapError (\error: streams.BufferCapacityError -> show error)
-
-    _connector <- effects.fork (
-      do {
-        connection <- websocket.connect {
-          url: "ws://127.0.0.1:41290/chat",
-          protocols: ["seseragi.chat.v1"],
-          receiveBuffer: capacity,
-        }
-          |> effects.mapError errorText
-        refs.set (Connected connection) connectionState
-          |> effects.mapError impossibleString
-        markConnected state
-          |> effects.mapError impossibleString
-        receive state connectionState connection
-          |> effects.mapError impossibleString
-      }
+    connector <- effects.fork (connectAndReceive state connectionState)
+      |> effects.mapError impossibleString
+    _watcher <- effects.fork (
+      effects.join connector
         |> effects.recover (connectionFailed state connectionState)
     )
       |> effects.mapError impossibleString
