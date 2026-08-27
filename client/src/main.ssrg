@@ -94,16 +94,11 @@ let buttonStyle = html.style {
   width: "100%"
 }
 
-fn webSocketFromNever value: Never -> websocket.WebSocketError =
-  webSocketFromNever value
+fn impossibleString _failure: Never -> String =
+  "unreachable"
 
-fn stringFromNever value: Never -> String =
-  stringFromNever value
-
-fn webSocketUnit -> Effect<{}, websocket.WebSocketError, Unit> = {
-  let result: Either<websocket.WebSocketError, Unit> = Right ()
-  effects.fromEither result
-}
+fn ignoreString _error: String -> Task<Unit> =
+  effects.succeed ()
 
 fn nameAction event: html.InputEvent -> Action =
   NameChanged event.value
@@ -164,41 +159,54 @@ fn view model: Model -> html.Html<Action> =
 
 fn appendMessage state: MutableSignal<Model> -> text: String -> Task<Unit> =
   signals.update
-    (\model -> Model {
+    (\model: Model -> Model {
       ...model,
       messages: arrays.append [text] model.messages,
     })
     state
 
+fn appendMessageWithError
+  state: MutableSignal<Model>
+  -> text: String
+  -> Effect<{}, String, Unit> =
+  appendMessage state text
+    |> effects.mapError impossibleString
+
+fn clearDraft state: MutableSignal<Model> -> Task<Unit> =
+  signals.update (\model: Model -> Model { ...model, draft: "" }) state
+
 fn markDisconnected state: MutableSignal<Model> -> Task<Unit> =
   signals.update
-    (\model -> Model { ...model, status: "Disconnected" })
+    (\model: Model -> Model { ...model, status: "Disconnected" })
     state
 
-fn receiveEvent
-  state: MutableSignal<Model>
-  -> event: websocket.WebSocketEvent
-  -> Effect<{}, websocket.WebSocketError, Unit> =
+fn textEvent event: websocket.WebSocketEvent -> Maybe<String> =
   websocket.foldEvent
-    (\text -> appendMessage state text |> effects.mapError webSocketFromNever)
-    (\_ -> webSocketUnit ())
-    (\_ -> markDisconnected state |> effects.mapError webSocketFromNever)
+    (\text: String -> Just text)
+    (\_ -> Nothing)
+    (\_ -> Nothing)
     event
 
 fn receive
   state: MutableSignal<Model>
   -> connection: websocket.WebSocketConnection
   -> Task<Unit> =
-  websocket.messages connection
-    |> streams.runForEach (receiveEvent state)
-    |> effects.recover (\_ -> markDisconnected state)
+  do {
+    websocket.messages connection
+      |> streams.filterMap textEvent
+      |> streams.mapError (\error: websocket.WebSocketError -> websocket.errorMessage error)
+      |> streams.runForEach (appendMessageWithError state)
+      |> effects.recover ignoreString
+
+    markDisconnected state
+  }
 
 fn sendFailed
   state: MutableSignal<Model>
   -> _error: websocket.WebSocketError
   -> Task<Unit> =
   signals.update
-    (\model -> Model { ...model, status: "Send failed" })
+    (\model: Model -> Model { ...model, status: "Send failed" })
     state
 
 fn handle
@@ -208,10 +216,10 @@ fn handle
   -> Task<Unit> =
   match action {
     NameChanged value ->
-      signals.update (\model -> Model { ...model, name: value }) state
+      signals.update (\model: Model -> Model { ...model, name: value }) state
 
     DraftChanged value ->
-      signals.update (\model -> Model { ...model, draft: value }) state
+      signals.update (\model: Model -> Model { ...model, draft: value }) state
 
     Submitted -> do {
       current <- *state
@@ -221,9 +229,7 @@ fn handle
         do {
           websocket.sendText `${current.name}: ${current.draft}` connection
             |> effects.recover (sendFailed state)
-          signals.update
-            (\model -> Model { ...model, draft: "" })
-            state
+          clearDraft state
         }
     }
   }
@@ -247,17 +253,16 @@ fails String =
       |> effects.mapError errorText
 
     state <- signals.make initial
-      |> effects.mapError stringFromNever
+      |> effects.mapError impossibleString
     _receiver <- effects.fork (receive state connection)
-      |> effects.mapError stringFromNever
+      |> effects.mapError impossibleString
+
+    let content = signals.map view state
+    let options = dom.defaultOptions ()
 
     target <- dom.query "#app"
       |> effects.mapError (\error: dom.DomError -> show error)
 
-    dom.run
-      (dom.defaultOptions ())
-      target
-      (handle state connection)
-      (signals.map view state)
+    dom.run options target (handle state connection) content
       |> effects.mapError (\error: dom.DomRuntimeError<Never> -> show error)
   }
