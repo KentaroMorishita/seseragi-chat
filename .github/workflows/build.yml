@@ -39,13 +39,13 @@ jobs:
           grep -q 'process.env.PORT' "$PROVIDER"
 
           rm -rf deploy
-          mkdir deploy
-          tar -C dist -czf deploy/server-dist.tgz .
-          tar -tzf deploy/server-dist.tgz > deploy/server-dist.list
+          mkdir -p deploy/backend
+          tar -C dist -czf deploy/backend/server-dist.tgz .
+          tar -tzf deploy/backend/server-dist.tgz > deploy/server-dist.list
           grep -q '^./entry.ts$' deploy/server-dist.list
           grep -q '^./node_modules/seseragi/runtime-bun/websocket-server.ts$' deploy/server-dist.list
           rm deploy/server-dist.list
-          cp vercel/Dockerfile.vercel deploy/Dockerfile.vercel
+          cp vercel/Dockerfile.vercel deploy/backend/Dockerfile.vercel
           cp vercel/vercel.json deploy/vercel.json
 
       - name: Build browser client
