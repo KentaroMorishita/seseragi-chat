@@ -40,8 +40,10 @@ jobs:
           rm -rf deploy
           mkdir deploy
           tar -C dist -czf deploy/server-dist.tgz .
-          tar -tzf deploy/server-dist.tgz | grep -q '^./entry.ts$'
-          tar -tzf deploy/server-dist.tgz | grep -q '^./node_modules/seseragi/runtime-bun/websocket-server.ts$'
+          tar -tzf deploy/server-dist.tgz > deploy/server-dist.list
+          grep -q '^./entry.ts$' deploy/server-dist.list
+          grep -q '^./node_modules/seseragi/runtime-bun/websocket-server.ts$' deploy/server-dist.list
+          rm deploy/server-dist.list
           cp vercel/Dockerfile.vercel deploy/Dockerfile.vercel
 
       - name: Build browser client
