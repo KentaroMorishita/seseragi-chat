@@ -1,0 +1,56 @@
+name: build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  chat:
+    runs-on: ubuntu-latest
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_TEAM: kentaromorishitas-projects
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+
+      - name: Install Seseragi CLI
+        run: cargo install --git https://github.com/KentaroMorishita/seseragi --locked seseragi-cli
+
+      - name: Build WebSocket server
+        working-directory: server
+        run: seseragi build .
+
+      - name: Build browser client
+        working-directory: client
+        run: |
+          seseragi build .
+          test -f dist/index.html
+
+      - name: Reject unresolved generated expressions
+        run: |
+          if grep -R -n -E '=>[[:space:]]*_;' client/dist; then
+            echo "Generated bundle contains an unresolved Seseragi lowering placeholder."
+            exit 1
+          fi
+
+      - name: Deploy browser client to Vercel
+        if: github.event_name != 'pull_request' && env.VERCEL_TOKEN != ''
+        run: |
+          bunx vercel@latest project inspect seseragi-chat \
+            --scope "$VERCEL_TEAM" \
+            --token "$VERCEL_TOKEN" >/dev/null 2>&1 \
+            || bunx vercel@latest project add seseragi-chat \
+              --scope "$VERCEL_TEAM" \
+              --token "$VERCEL_TOKEN"
+
+          bunx vercel@latest deploy client/dist \
+            --prod \
+            --yes \
+            --project seseragi-chat \
+            --scope "$VERCEL_TEAM" \
+            --token "$VERCEL_TOKEN"
