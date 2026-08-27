@@ -84,8 +84,8 @@ fails AppError =
       |> effects.mapError appFromNever
 
     _server <- server.listen {
-      hostname: "127.0.0.1",
-      port: 41290,
+      hostname: "0.0.0.0",
+      port: 3000,
       path: "/chat",
       protocols: ["seseragi.chat.v1"],
       receiveBuffer: capacity,
