@@ -167,7 +167,7 @@ fn markDisconnected state: MutableSignal<Model> -> Task<Unit> =
 fn receiveEvent
   state: MutableSignal<Model>
   -> event: websocket.WebSocketEvent
-  -> Task<Unit> =
+  -> Effect<{}, websocket.WebSocketError, Unit> =
   websocket.foldEvent
     (appendMessage state)
     (\_ -> effects.succeed ())
