@@ -224,8 +224,13 @@ fn view model: Model -> html.Html<Action> =
                 html.p { style: statusStyle, children: model.status }
               ]
             },
-            html.label { style: nameLabelStyle, children: "Display name" },
+            html.label {
+              htmlFor: "display-name",
+              style: nameLabelStyle,
+              children: "Display name"
+            },
             html.input {
+              id: "display-name",
               name: "name",
               inputType: "text",
               value: model.name,
@@ -241,6 +246,7 @@ fn view model: Model -> html.Html<Action> =
           style: composerStyle,
           children: [
             html.input {
+              id: "message-input",
               name: "message",
               inputType: "text",
               value: model.draft,
