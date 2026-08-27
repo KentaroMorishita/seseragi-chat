@@ -1,0 +1,79 @@
+import * as arrays from "std/array"
+import * as deferred from "std/deferred"
+import * as effects from "std/effect"
+import * as refs from "std/ref"
+import * as streams from "std/stream"
+import * as websocket from "std/websocket"
+import * as server from "std/websocket/server"
+
+type AppError deriving Show =
+  | InvalidCapacity streams.BufferCapacityError
+  | WebSocketFailure String
+
+fn ignoreWebSocket _error: websocket.WebSocketError -> Effect<{}, Never, Unit> =
+  effects.succeed ()
+
+fn webSocketFailure error: websocket.WebSocketError -> AppError =
+  WebSocketFailure (websocket.errorMessage error)
+
+fn broadcast
+  clients: refs.Ref<Array<websocket.WebSocketConnection>>
+  -> text: String
+  -> Effect<{}, Never, Unit> =
+  do {
+    current <- refs.get clients
+    for client <- current {
+      websocket.sendText text client
+        |> effects.recover ignoreWebSocket
+    }
+  }
+
+fn handleEvent
+  clients: refs.Ref<Array<websocket.WebSocketConnection>>
+  -> event: websocket.WebSocketEvent
+  -> Effect<{}, Never, Unit> =
+  websocket.foldEvent
+    (broadcast clients)
+    (\_ -> effects.succeed ())
+    (\_ -> effects.succeed ())
+    event
+
+fn handleConnection
+  clients: refs.Ref<Array<websocket.WebSocketConnection>>
+  -> connection: websocket.WebSocketConnection
+  -> Effect<{}, Never, Unit> =
+  do {
+    refs.modify
+      (\current -> (arrays.append [connection] current, ()))
+      clients
+
+    websocket.messages connection
+      |> streams.runForEach (handleEvent clients)
+      |> effects.recover ignoreWebSocket
+  }
+
+let emptyConnections: Array<websocket.WebSocketConnection> = []
+
+pub effect fn main -> Unit
+with webSocketServer: server.WebSocketServer
+fails AppError =
+  do {
+    capacity <- streams.bufferCapacity 32
+      |> effects.fromEither
+      |> effects.mapError InvalidCapacity
+
+    clients <- refs.make emptyConnections
+
+    _server <- server.listen {
+      hostname: "127.0.0.1",
+      port: 41290,
+      path: "/chat",
+      protocols: ["seseragi.chat.v1"],
+      receiveBuffer: capacity,
+      handler: handleConnection clients,
+    }
+      |> effects.mapError webSocketFailure
+
+    keepAlive <- deferred.make<Never, Unit> ()
+    deferred.await keepAlive
+  }
