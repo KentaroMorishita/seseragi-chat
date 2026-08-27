@@ -1,0 +1,250 @@
+import * as arrays from "std/array"
+import * as dom from "std/web/dom"
+import * as effects from "std/effect"
+import * as html from "std/web/html"
+import * as signals from "std/signal"
+import * as streams from "std/stream"
+import * as websocket from "std/websocket"
+import { MutableSignal } from "std/signal"
+
+struct Model {
+  name: String,
+  draft: String,
+  messages: Array<String>,
+  status: String,
+}
+
+type Action =
+  | NameChanged String
+  | DraftChanged String
+  | Submitted
+
+let initial = Model {
+  name: "Guest",
+  draft: "",
+  messages: [],
+  status: "Connected",
+}
+
+let pageStyle = html.style {
+  backgroundColor: "#f6f7fb",
+  color: "#111827",
+  minHeight: "100vh",
+  padding: "24px"
+}
+
+let cardStyle = html.style {
+  backgroundColor: "#ffffff",
+  borderRadius: "24px",
+  boxShadow: "0 18px 50px #11182712",
+  margin: "24px auto",
+  maxWidth: "720px",
+  padding: "24px"
+}
+
+let titleStyle = html.style {
+  margin: "0 0 6px 0",
+  fontSize: "28px",
+  fontWeight: "700"
+}
+
+let mutedStyle = html.style {
+  color: "#6b7280",
+  margin: "0 0 20px 0"
+}
+
+let fieldStyle = html.style {
+  borderRadius: "14px",
+  border: "1px solid #d1d5db",
+  padding: "12px 14px",
+  width: "100%"
+}
+
+let nameStyle = html.style {
+  borderRadius: "12px",
+  border: "1px solid #d1d5db",
+  margin: "0 0 16px 0",
+  padding: "10px 12px",
+  width: "100%"
+}
+
+let messagesStyle = html.style {
+  backgroundColor: "#f9fafb",
+  borderRadius: "18px",
+  minHeight: "320px",
+  padding: "16px",
+  margin: "0 0 16px 0"
+}
+
+let messageStyle = html.style {
+  backgroundColor: "#ffffff",
+  borderRadius: "14px",
+  boxShadow: "0 1px 3px #1118270d",
+  margin: "0 0 10px 0",
+  padding: "10px 12px"
+}
+
+let buttonStyle = html.style {
+  backgroundColor: "#111827",
+  borderRadius: "14px",
+  color: "#ffffff",
+  fontWeight: "700",
+  margin: "10px 0 0 0",
+  padding: "12px 18px",
+  width: "100%"
+}
+
+fn nameAction event: html.InputEvent -> Action =
+  NameChanged event.value
+
+fn draftAction event: html.InputEvent -> Action =
+  DraftChanged event.value
+
+fn messageView message: String -> html.Html<Action> =
+  html.div { style: messageStyle, children: message }
+
+fn messagesView messages: Array<String> -> html.Html<Action> =
+  html.div {
+    style: messagesStyle,
+    children: map messageView messages
+  }
+
+fn view model: Model -> html.Html<Action> =
+  html.main {
+    style: pageStyle,
+    children: html.section {
+      style: cardStyle,
+      children: [
+        html.h1 { style: titleStyle, children: "Seseragi Chat" },
+        html.p {
+          style: mutedStyle,
+          children: `DBなし / 1 room / WebSocket — ${model.status}`
+        },
+        html.input {
+          name: "name",
+          inputType: "text",
+          value: model.name,
+          placeholder: "Your name",
+          onInput: nameAction,
+          style: nameStyle
+        },
+        messagesView model.messages,
+        html.form {
+          onSubmit: Submitted,
+          children: [
+            html.input {
+              name: "message",
+              inputType: "text",
+              value: model.draft,
+              placeholder: "Type a message",
+              onInput: draftAction,
+              style: fieldStyle
+            },
+            html.button {
+              buttonType: "submit",
+              style: buttonStyle,
+              children: "Send"
+            }
+          ]
+        }
+      ]
+    }
+  }
+
+fn appendMessage state: MutableSignal<Model> -> text: String -> Task<Unit> =
+  signals.update
+    (\model -> Model {
+      ...model,
+      messages: arrays.append [text] model.messages,
+    })
+    state
+
+fn markDisconnected state: MutableSignal<Model> -> Task<Unit> =
+  signals.update
+    (\model -> Model { ...model, status: "Disconnected" })
+    state
+
+fn receiveEvent
+  state: MutableSignal<Model>
+  -> event: websocket.WebSocketEvent
+  -> Task<Unit> =
+  websocket.foldEvent
+    (appendMessage state)
+    (\_ -> effects.succeed ())
+    (\_ -> markDisconnected state)
+    event
+
+fn receive
+  state: MutableSignal<Model>
+  -> connection: websocket.WebSocketConnection
+  -> Task<Unit> =
+  websocket.messages connection
+    |> streams.runForEach (receiveEvent state)
+    |> effects.recover (\_ -> markDisconnected state)
+
+fn sendFailed
+  state: MutableSignal<Model>
+  -> _error: websocket.WebSocketError
+  -> Task<Unit> =
+  signals.update
+    (\model -> Model { ...model, status: "Send failed" })
+    state
+
+fn handle
+  state: MutableSignal<Model>
+  -> connection: websocket.WebSocketConnection
+  -> action: Action
+  -> Task<Unit> =
+  match action {
+    NameChanged value ->
+      signals.update (\model -> Model { ...model, name: value }) state
+
+    DraftChanged value ->
+      signals.update (\model -> Model { ...model, draft: value }) state
+
+    Submitted -> do {
+      current <- *state
+      if current.draft == "" then
+        effects.succeed ()
+      else
+        do {
+          websocket.sendText `${current.name}: ${current.draft}` connection
+            |> effects.recover (sendFailed state)
+          signals.update
+            (\model -> Model { ...model, draft: "" })
+            state
+        }
+    }
+  }
+
+fn errorText error: websocket.WebSocketError -> String =
+  websocket.errorMessage error
+
+pub effect fn main -> Unit
+with dom: dom.Dom, webSocketClient: websocket.WebSocketClient
+fails String =
+  do {
+    capacity <- streams.bufferCapacity 32
+      |> effects.fromEither
+      |> effects.mapError (\error: streams.BufferCapacityError -> show error)
+
+    connection <- websocket.connect {
+      url: "ws://127.0.0.1:41290/chat",
+      protocols: ["seseragi.chat.v1"],
+      receiveBuffer: capacity,
+    }
+      |> effects.mapError errorText
+
+    state <- signals.make initial
+    _receiver <- effects.fork $ receive state connection
+
+    target <- dom.query "#app"
+      |> effects.mapError (\error: dom.DomError -> show error)
+
+    dom.run
+      (dom.defaultOptions ())
+      target
+      (handle state connection)
+      (signals.map view state)
+      |> effects.mapError (\error: dom.DomRuntimeError<Never> -> show error)
+  }
