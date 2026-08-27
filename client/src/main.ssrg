@@ -95,14 +95,15 @@ let buttonStyle = html.style {
 }
 
 fn webSocketFromNever value: Never -> websocket.WebSocketError =
-  match value {}
+  webSocketFromNever value
 
 fn stringFromNever value: Never -> String =
-  match value {}
+  stringFromNever value
 
-fn webSocketUnit -> Effect<{}, websocket.WebSocketError, Unit> =
+fn webSocketUnit -> Effect<{}, websocket.WebSocketError, Unit> = {
   let result: Either<websocket.WebSocketError, Unit> = Right ()
   effects.fromEither result
+}
 
 fn nameAction event: html.InputEvent -> Action =
   NameChanged event.value
