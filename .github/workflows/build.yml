@@ -12,6 +12,7 @@ jobs:
     env:
       VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
       VERCEL_TEAM: kentaromorishitas-projects
+      VERCEL_SERVER_PROJECT: seseragi-chat-server
 
     steps:
       - uses: actions/checkout@v4
@@ -45,6 +46,7 @@ jobs:
           grep -q '^./node_modules/seseragi/runtime-bun/websocket-server.ts$' deploy/server-dist.list
           rm deploy/server-dist.list
           cp vercel/Dockerfile.vercel deploy/Dockerfile.vercel
+          cp vercel/vercel.json deploy/vercel.json
 
       - name: Build browser client
         working-directory: client
@@ -60,7 +62,7 @@ jobs:
             exit 1
           fi
 
-      - name: Ensure Vercel project
+      - name: Ensure Vercel projects
         if: env.VERCEL_TOKEN != ''
         run: |
           bunx vercel@latest project inspect seseragi-chat \
@@ -70,20 +72,29 @@ jobs:
               --scope "$VERCEL_TEAM" \
               --token "$VERCEL_TOKEN"
 
-      - name: Deploy preview and verify WebSocket broadcast
-        if: github.event_name == 'pull_request' && env.VERCEL_TOKEN != ''
+          bunx vercel@latest project inspect "$VERCEL_SERVER_PROJECT" \
+            --scope "$VERCEL_TEAM" \
+            --token "$VERCEL_TOKEN" >/dev/null 2>&1 \
+            || bunx vercel@latest project add "$VERCEL_SERVER_PROJECT" \
+              --scope "$VERCEL_TEAM" \
+              --token "$VERCEL_TOKEN"
+
+      - name: Deploy public WebSocket server and verify broadcast
+        if: env.VERCEL_TOKEN != ''
         run: |
-          DEPLOYMENT_URL="$(bunx vercel@latest deploy . \
+          set -euo pipefail
+          cd server/deploy
+          bunx vercel@latest deploy . \
+            --prod \
             --yes \
-            --project seseragi-chat \
+            --project "$VERCEL_SERVER_PROJECT" \
             --scope "$VERCEL_TEAM" \
             --token "$VERCEL_TOKEN" \
-            --local-config vercel.json)"
-          WS_URL="${DEPLOYMENT_URL/https:/wss:}/chat"
-          echo "Testing $WS_URL"
+            --local-config vercel.json
+          cd ../..
 
           for attempt in 1 2 3 4 5; do
-            if bun scripts/websocket-smoke.ts "$WS_URL"; then
+            if bun scripts/websocket-smoke.ts "wss://seseragi-chat-server.vercel.app/chat"; then
               exit 0
             fi
             echo "WebSocket smoke attempt $attempt failed; retrying..."
@@ -91,22 +102,12 @@ jobs:
           done
           exit 1
 
-      - name: Deploy production and verify WebSocket broadcast
+      - name: Deploy browser client to Vercel
         if: github.event_name != 'pull_request' && env.VERCEL_TOKEN != ''
         run: |
-          bunx vercel@latest deploy . \
+          bunx vercel@latest deploy client/dist \
             --prod \
             --yes \
             --project seseragi-chat \
             --scope "$VERCEL_TEAM" \
-            --token "$VERCEL_TOKEN" \
-            --local-config vercel.json
-
-          for attempt in 1 2 3 4 5; do
-            if bun scripts/websocket-smoke.ts "wss://seseragi-chat.vercel.app/chat"; then
-              exit 0
-            fi
-            echo "WebSocket smoke attempt $attempt failed; retrying..."
-            sleep 3
-          done
-          exit 1
+            --token "$VERCEL_TOKEN"
