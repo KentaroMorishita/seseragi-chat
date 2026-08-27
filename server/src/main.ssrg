@@ -11,14 +11,15 @@ type AppError deriving Show =
   | WebSocketFailure String
 
 fn webSocketFromNever value: Never -> websocket.WebSocketError =
-  match value {}
+  webSocketFromNever value
 
 fn appFromNever value: Never -> AppError =
-  match value {}
+  appFromNever value
 
-fn webSocketUnit -> Effect<{}, websocket.WebSocketError, Unit> =
+fn webSocketUnit -> Effect<{}, websocket.WebSocketError, Unit> = {
   let result: Either<websocket.WebSocketError, Unit> = Right ()
   effects.fromEither result
+}
 
 fn ignoreWebSocket _error: websocket.WebSocketError -> Effect<{}, Never, Unit> =
   effects.succeed ()
