@@ -23,11 +23,14 @@ jobs:
 
       - name: Build WebSocket server
         working-directory: server
-        run: seseragi build .
+        run: |
+          seseragi lock update
+          seseragi build .
 
       - name: Build browser client
         working-directory: client
         run: |
+          seseragi lock update
           seseragi build .
           test -f dist/index.html
 
