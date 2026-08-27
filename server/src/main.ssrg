@@ -19,7 +19,7 @@ fn webSocketFailure error: websocket.WebSocketError -> AppError =
 fn broadcast
   clients: refs.Ref<Array<websocket.WebSocketConnection>>
   -> text: String
-  -> Effect<{}, Never, Unit> =
+  -> Effect<{}, websocket.WebSocketError, Unit> =
   do {
     current <- refs.get clients
     for client <- current {
@@ -31,7 +31,7 @@ fn broadcast
 fn handleEvent
   clients: refs.Ref<Array<websocket.WebSocketConnection>>
   -> event: websocket.WebSocketEvent
-  -> Effect<{}, Never, Unit> =
+  -> Effect<{}, websocket.WebSocketError, Unit> =
   websocket.foldEvent
     (broadcast clients)
     (\_ -> effects.succeed ())
@@ -43,7 +43,7 @@ fn handleConnection
   -> connection: websocket.WebSocketConnection
   -> Effect<{}, Never, Unit> =
   do {
-    refs.modify
+    _ <- refs.modify
       (\current: Array<websocket.WebSocketConnection> ->
         ((), arrays.append [connection] current))
       clients
