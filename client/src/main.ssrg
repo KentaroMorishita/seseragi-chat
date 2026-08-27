@@ -34,71 +34,141 @@ let initial = Model {
 }
 
 let pageStyle = html.style {
-  backgroundColor: "#f6f7fb",
+  backgroundColor: "#eef2f7",
   color: "#111827",
-  minHeight: "100vh",
-  padding: "24px"
+  minHeight: "100dvh",
+  padding: "0",
+  fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
 }
 
-let cardStyle = html.style {
+let shellStyle = html.style {
   backgroundColor: "#ffffff",
-  borderRadius: "24px",
-  boxShadow: "0 18px 50px #11182712",
-  margin: "24px auto",
-  maxWidth: "720px",
-  padding: "24px"
-}
-
-let titleStyle = html.style {
-  margin: "0 0 6px 0",
-  fontSize: "28px",
-  fontWeight: "700"
-}
-
-let mutedStyle = html.style {
-  color: "#6b7280",
-  margin: "0 0 20px 0"
-}
-
-let fieldStyle = html.style {
-  borderRadius: "14px",
-  border: "1px solid #d1d5db",
-  padding: "12px 14px",
+  display: "flex",
+  flexDirection: "column",
+  margin: "0 auto",
+  maxWidth: "760px",
+  minHeight: "100dvh",
   width: "100%"
 }
 
+let headerStyle = html.style {
+  backgroundColor: "#ffffff",
+  borderBottom: "1px solid #e5e7eb",
+  padding: "18px 18px 14px"
+}
+
+let headerTopStyle = html.style {
+  alignItems: "center",
+  display: "flex",
+  gap: "12px",
+  justifyContent: "space-between",
+  margin: "0 0 14px 0"
+}
+
+let titleStyle = html.style {
+  fontSize: "23px",
+  fontWeight: "750",
+  letterSpacing: "-0.02em",
+  margin: "0"
+}
+
+let statusStyle = html.style {
+  backgroundColor: "#f3f4f6",
+  borderRadius: "999px",
+  color: "#6b7280",
+  fontSize: "12px",
+  fontWeight: "650",
+  margin: "0",
+  padding: "6px 10px"
+}
+
+let nameLabelStyle = html.style {
+  color: "#6b7280",
+  display: "block",
+  fontSize: "12px",
+  fontWeight: "650",
+  margin: "0 0 6px 2px"
+}
+
 let nameStyle = html.style {
+  appearance: "none",
+  backgroundColor: "#f8fafc",
+  border: "1px solid #d7dee8",
   borderRadius: "12px",
-  border: "1px solid #d1d5db",
-  margin: "0 0 16px 0",
-  padding: "10px 12px",
+  boxSizing: "border-box",
+  color: "#111827",
+  fontSize: "16px",
+  height: "44px",
+  outline: "none",
+  padding: "0 13px",
   width: "100%"
 }
 
 let messagesStyle = html.style {
-  backgroundColor: "#f9fafb",
-  borderRadius: "18px",
-  minHeight: "320px",
-  padding: "16px",
-  margin: "0 0 16px 0"
+  backgroundColor: "#f6f8fb",
+  flex: "1",
+  minHeight: "0",
+  overflowY: "auto",
+  padding: "18px 16px"
+}
+
+let emptyStyle = html.style {
+  color: "#9ca3af",
+  fontSize: "14px",
+  padding: "72px 12px",
+  textAlign: "center"
 }
 
 let messageStyle = html.style {
   backgroundColor: "#ffffff",
-  borderRadius: "14px",
-  boxShadow: "0 1px 3px #1118270d",
+  border: "1px solid #e5e7eb",
+  borderRadius: "16px 16px 16px 5px",
+  boxShadow: "0 1px 2px #1118270a",
+  color: "#1f2937",
+  fontSize: "15px",
+  lineHeight: "1.45",
   margin: "0 0 10px 0",
-  padding: "10px 12px"
+  maxWidth: "84%",
+  padding: "10px 13px",
+  width: "fit-content",
+  wordBreak: "break-word"
+}
+
+let composerStyle = html.style {
+  alignItems: "center",
+  backgroundColor: "#ffffff",
+  borderTop: "1px solid #e5e7eb",
+  display: "flex",
+  gap: "10px",
+  padding: "12px 14px 14px"
+}
+
+let fieldStyle = html.style {
+  appearance: "none",
+  backgroundColor: "#f8fafc",
+  border: "1px solid #d7dee8",
+  borderRadius: "999px",
+  boxSizing: "border-box",
+  color: "#111827",
+  flex: "1",
+  fontSize: "16px",
+  height: "48px",
+  minWidth: "0",
+  outline: "none",
+  padding: "0 16px"
 }
 
 let buttonStyle = html.style {
+  appearance: "none",
   backgroundColor: "#111827",
-  borderRadius: "14px",
+  border: "0",
+  borderRadius: "999px",
   color: "#ffffff",
+  flexShrink: "0",
+  fontSize: "15px",
   fontWeight: "700",
-  margin: "10px 0 0 0",
-  padding: "12px 18px",
-  width: "100%"
+  height: "48px",
+  padding: "0 20px"
 }
 
 fn impossibleString _failure: Never -> String =
@@ -120,39 +190,57 @@ fn messageView message: String -> html.Html<Action> =
   html.div { style: messageStyle, children: message }
 
 fn messagesView messages: Array<String> -> html.Html<Action> =
-  html.div {
-    style: messagesStyle,
-    children: map messageView messages
+  match messages {
+    [] -> html.div {
+      style: messagesStyle,
+      children: html.div {
+        style: emptyStyle,
+        children: "No messages yet"
+      }
+    }
+    _ -> html.div {
+      style: messagesStyle,
+      children: map messageView messages
+    }
   }
 
 fn view model: Model -> html.Html<Action> =
   html.main {
     style: pageStyle,
     children: html.section {
-      style: cardStyle,
+      style: shellStyle,
       children: [
-        html.h1 { style: titleStyle, children: "Seseragi Chat" },
-        html.p {
-          style: mutedStyle,
-          children: `DBなし / 1 room / WebSocket — ${model.status}`
-        },
-        html.input {
-          name: "name",
-          inputType: "text",
-          value: model.name,
-          placeholder: "Your name",
-          onInput: nameAction,
-          style: nameStyle
+        html.header {
+          style: headerStyle,
+          children: [
+            html.div {
+              style: headerTopStyle,
+              children: [
+                html.h1 { style: titleStyle, children: "Seseragi Chat" },
+                html.p { style: statusStyle, children: model.status }
+              ]
+            },
+            html.label { style: nameLabelStyle, children: "Display name" },
+            html.input {
+              name: "name",
+              inputType: "text",
+              value: model.name,
+              placeholder: "Your name",
+              onInput: nameAction,
+              style: nameStyle
+            }
+          ]
         },
         messagesView model.messages,
         html.form {
           onSubmit: Submitted,
+          style: composerStyle,
           children: [
             html.input {
               name: "message",
               inputType: "text",
               value: model.draft,
-              placeholder: "Type a message",
+              placeholder: "Message",
               onInput: draftAction,
               style: fieldStyle
             },
