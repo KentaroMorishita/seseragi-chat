@@ -26,6 +26,9 @@ jobs:
         run: |
           seseragi lock update
           seseragi build .
+          test -f dist/entry.ts
+          test -f dist/node_modules/seseragi/runtime-bun/websocket-server.ts
+          cp vercel/Dockerfile.vercel dist/Dockerfile.vercel
 
       - name: Build browser client
         working-directory: client
@@ -36,13 +39,13 @@ jobs:
 
       - name: Reject unresolved generated expressions
         run: |
-          if grep -R -n -E '=>[[:space:]]*_;' client/dist; then
+          if grep -R -n -E '=>[[:space:]]*_;' client/dist server/dist; then
             echo "Generated bundle contains an unresolved Seseragi lowering placeholder."
             exit 1
           fi
 
-      - name: Deploy browser client to Vercel
-        if: github.event_name != 'pull_request' && env.VERCEL_TOKEN != ''
+      - name: Ensure Vercel project
+        if: env.VERCEL_TOKEN != ''
         run: |
           bunx vercel@latest project inspect seseragi-chat \
             --scope "$VERCEL_TEAM" \
@@ -51,9 +54,43 @@ jobs:
               --scope "$VERCEL_TEAM" \
               --token "$VERCEL_TOKEN"
 
-          bunx vercel@latest deploy client/dist \
+      - name: Deploy preview and verify WebSocket broadcast
+        if: github.event_name == 'pull_request' && env.VERCEL_TOKEN != ''
+        run: |
+          DEPLOYMENT_URL="$(bunx vercel@latest deploy . \
+            --yes \
+            --project seseragi-chat \
+            --scope "$VERCEL_TEAM" \
+            --token "$VERCEL_TOKEN" \
+            --local-config vercel.json)"
+          WS_URL="${DEPLOYMENT_URL/https:/wss:}/chat"
+          echo "Testing $WS_URL"
+
+          for attempt in 1 2 3 4 5; do
+            if bun scripts/websocket-smoke.ts "$WS_URL"; then
+              exit 0
+            fi
+            echo "WebSocket smoke attempt $attempt failed; retrying..."
+            sleep 3
+          done
+          exit 1
+
+      - name: Deploy production and verify WebSocket broadcast
+        if: github.event_name != 'pull_request' && env.VERCEL_TOKEN != ''
+        run: |
+          bunx vercel@latest deploy . \
             --prod \
             --yes \
             --project seseragi-chat \
             --scope "$VERCEL_TEAM" \
-            --token "$VERCEL_TOKEN"
+            --token "$VERCEL_TOKEN" \
+            --local-config vercel.json
+
+          for attempt in 1 2 3 4 5; do
+            if bun scripts/websocket-smoke.ts "wss://seseragi-chat.vercel.app/chat"; then
+              exit 0
+            fi
+            echo "WebSocket smoke attempt $attempt failed; retrying..."
+            sleep 3
+          done
+          exit 1
