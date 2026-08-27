@@ -6,7 +6,7 @@
       "root": "client/dist"
     },
     "backend": {
-      "root": "server/dist",
+      "root": "server/deploy",
       "runtime": "container",
       "entrypoint": "Dockerfile.vercel"
     }

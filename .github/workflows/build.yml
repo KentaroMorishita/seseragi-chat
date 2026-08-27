@@ -17,6 +17,8 @@ jobs:
       - uses: actions/checkout@v4
 
       - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.9
 
       - name: Install Seseragi CLI
         run: cargo install --git https://github.com/KentaroMorishita/seseragi --locked seseragi-cli
@@ -24,11 +26,23 @@ jobs:
       - name: Build WebSocket server
         working-directory: server
         run: |
+          set -euo pipefail
           seseragi lock update
           seseragi build .
+
+          PROVIDER="dist/node_modules/seseragi/runtime-bun/websocket-server.ts"
           test -f dist/entry.ts
-          test -f dist/node_modules/seseragi/runtime-bun/websocket-server.ts
-          cp vercel/Dockerfile.vercel dist/Dockerfile.vercel
+          test -f "$PROVIDER"
+          grep -q 'port: request.port' "$PROVIDER"
+          sed -i 's/port: request.port,/port: Number(process.env.PORT ?? request.port),/' "$PROVIDER"
+          grep -q 'process.env.PORT' "$PROVIDER"
+
+          rm -rf deploy
+          mkdir deploy
+          tar -C dist -czf deploy/server-dist.tgz .
+          tar -tzf deploy/server-dist.tgz | grep -q '^./entry.ts$'
+          tar -tzf deploy/server-dist.tgz | grep -q '^./node_modules/seseragi/runtime-bun/websocket-server.ts$'
+          cp vercel/Dockerfile.vercel deploy/Dockerfile.vercel
 
       - name: Build browser client
         working-directory: client
