@@ -44,7 +44,8 @@ fn handleConnection
   -> Effect<{}, Never, Unit> =
   do {
     refs.modify
-      (\current -> (arrays.append [connection] current, ()))
+      (\current: Array<websocket.WebSocketConnection> ->
+        ((), arrays.append [connection] current))
       clients
 
     websocket.messages connection
