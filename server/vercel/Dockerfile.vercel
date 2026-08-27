@@ -1,0 +1,14 @@
+FROM oven/bun:1.3.9
+
+WORKDIR /app
+COPY . .
+
+# Seseragi's Bun WebSocket provider uses the application-declared port.
+# Vercel container functions inject the actual listening port through $PORT,
+# so adapt only this host boundary while leaving the Seseragi application
+# and provider semantics unchanged.
+RUN test -f node_modules/seseragi/runtime-bun/websocket-server.ts \
+  && grep -q 'port: request.port' node_modules/seseragi/runtime-bun/websocket-server.ts \
+  && sed -i 's/port: request.port,/port: Number(process.env.PORT ?? request.port),/' node_modules/seseragi/runtime-bun/websocket-server.ts
+
+CMD ["bun", "entry.ts"]
