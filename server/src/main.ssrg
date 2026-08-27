@@ -10,11 +10,31 @@ type AppError deriving Show =
   | InvalidCapacity streams.BufferCapacityError
   | WebSocketFailure String
 
+fn webSocketFromNever value: Never -> websocket.WebSocketError =
+  match value {}
+
+fn appFromNever value: Never -> AppError =
+  match value {}
+
+fn webSocketUnit -> Effect<{}, websocket.WebSocketError, Unit> =
+  let result: Either<websocket.WebSocketError, Unit> = Right ()
+  effects.fromEither result
+
 fn ignoreWebSocket _error: websocket.WebSocketError -> Effect<{}, Never, Unit> =
   effects.succeed ()
 
+fn ignoreWebSocketTyped _error: websocket.WebSocketError
+  -> Effect<{}, websocket.WebSocketError, Unit> =
+  webSocketUnit ()
+
 fn webSocketFailure error: websocket.WebSocketError -> AppError =
   WebSocketFailure (websocket.errorMessage error)
+
+fn sendOne text: String
+  -> client: websocket.WebSocketConnection
+  -> Effect<{}, websocket.WebSocketError, Unit> =
+  websocket.sendText text client
+    |> effects.recover ignoreWebSocketTyped
 
 fn broadcast
   clients: refs.Ref<Array<websocket.WebSocketConnection>>
@@ -22,10 +42,9 @@ fn broadcast
   -> Effect<{}, websocket.WebSocketError, Unit> =
   do {
     current <- refs.get clients
-    for client <- current {
-      websocket.sendText text client
-        |> effects.recover ignoreWebSocket
-    }
+      |> effects.mapError webSocketFromNever
+    _ <- effects.parallel $ map (sendOne text) current
+    webSocketUnit ()
   }
 
 fn handleEvent
@@ -34,8 +53,8 @@ fn handleEvent
   -> Effect<{}, websocket.WebSocketError, Unit> =
   websocket.foldEvent
     (broadcast clients)
-    (\_ -> effects.succeed ())
-    (\_ -> effects.succeed ())
+    (\_ -> webSocketUnit ())
+    (\_ -> webSocketUnit ())
     event
 
 fn handleConnection
@@ -43,10 +62,7 @@ fn handleConnection
   -> connection: websocket.WebSocketConnection
   -> Effect<{}, Never, Unit> =
   do {
-    _ <- refs.modify
-      (\current: Array<websocket.WebSocketConnection> ->
-        ((), arrays.append [connection] current))
-      clients
+    _ <- refs.modify (\current: Array<websocket.WebSocketConnection> -> ((), arrays.append [connection] current)) clients
 
     websocket.messages connection
       |> streams.runForEach (handleEvent clients)
@@ -64,6 +80,7 @@ fails AppError =
       |> effects.mapError InvalidCapacity
 
     clients <- refs.make emptyConnections
+      |> effects.mapError appFromNever
 
     _server <- server.listen {
       hostname: "127.0.0.1",
@@ -76,5 +93,7 @@ fails AppError =
       |> effects.mapError webSocketFailure
 
     keepAlive <- deferred.make<Never, Unit> ()
+      |> effects.mapError appFromNever
     deferred.await keepAlive
+      |> effects.mapError appFromNever
   }
